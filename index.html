@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sci-Chain-JEPA · Joint-Embedding Prediction over Scientific Reasoning</title>
+<!-- MathJax for the equations -->
+<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121a32; --panel2:#0f1730; --ink:#e8edff;
+    --muted:#9fb0d8; --brand:#6ea8fe; --brand2:#9b8cff; --good:#36d399;
+    --warn:#fbbf24; --line:#26345e; --code:#0a0f22;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       background:radial-gradient(1200px 700px at 80% -10%,#1a2550 0%,var(--bg) 55%);
+       color:var(--ink);line-height:1.6}
+  a{color:var(--brand);text-decoration:none}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 22px}
+  /* NAV */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(10px);
+      background:rgba(11,16,32,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+  .logo{font-weight:800;letter-spacing:.3px}
+  .logo span{background:linear-gradient(90deg,var(--brand),var(--brand2));
+             -webkit-background-clip:text;background-clip:text;color:transparent}
+  .navlinks a{margin-left:18px;color:var(--muted);font-size:14px}
+  .navlinks a:hover{color:var(--ink)}
+  /* HERO */
+  header{padding:70px 0 40px;text-align:center}
+  .badge{display:inline-block;font-size:12px;letter-spacing:1px;text-transform:uppercase;
+         color:var(--brand);border:1px solid var(--line);border-radius:999px;
+         padding:6px 14px;margin-bottom:18px;background:var(--panel)}
+  h1{font-size:clamp(30px,5vw,52px);line-height:1.1;margin:.2em 0}
+  h1 .grad{background:linear-gradient(90deg,var(--brand),var(--brand2));
+           -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);max-width:720px;margin:14px auto 26px;font-size:18px}
+  .cta a{display:inline-block;margin:6px;padding:12px 22px;border-radius:12px;font-weight:600}
+  .cta .primary{background:linear-gradient(90deg,var(--brand),var(--brand2));color:#08122e}
+  .cta .ghost{border:1px solid var(--line);color:var(--ink);background:var(--panel)}
+  /* SECTION */
+  section{padding:54px 0;border-top:1px solid var(--line)}
+  h2{font-size:30px;margin:0 0 6px}
+  .lead{color:var(--muted);margin:0 0 26px;max-width:760px}
+  .grid{display:grid;gap:18px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .card h3{margin:.1em 0 .4em;font-size:18px}
+  .card p{color:var(--muted);margin:0;font-size:15px}
+  .icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+        background:linear-gradient(135deg,var(--brand),var(--brand2));margin-bottom:12px;font-size:22px}
+  .eq{background:var(--panel2);border:1px dashed var(--line);border-radius:14px;
+      padding:18px;text-align:center;margin-top:22px}
+  /* ===== PRESENTATION PIPELINE ===== */
+  .stagebar{display:flex;gap:0;border-radius:16px;overflow:hidden;border:1px solid var(--line);margin:8px 0 30px}
+  .seg{flex:1;padding:18px 10px;text-align:center;position:relative;
+       background:linear-gradient(180deg,var(--panel),var(--panel2));transition:.3s}
+  .seg:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(110,168,254,.25);z-index:2}
+  .seg+.seg{border-left:1px solid var(--line)}
+  .seg .num{font-size:11px;font-weight:800;color:var(--brand);letter-spacing:1px}
+  .seg .ttl{font-weight:800;margin-top:6px;font-size:15px}
+  .seg .ex{color:var(--muted);font-size:11px;margin-top:6px;font-style:italic}
+  .seg .dot{position:absolute;right:-7px;top:50%;width:12px;height:12px;border-radius:50%;
+            background:var(--brand);box-shadow:0 0 0 4px rgba(110,168,254,.2);z-index:3}
+  .seg:last-child .dot{display:none}
+  .megaflow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:center;margin:30px 0}
+  @media(max-width:820px){.megaflow{grid-template-columns:1fr;gap:14px}.megaflow .arr{transform:rotate(90deg)}}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;text-align:center}
+  .node.hot{border-color:var(--brand);box-shadow:0 0 40px rgba(110,168,254,.25)}
+  .node .ico{font-size:30px}
+  .node .h{font-weight:800;margin-top:8px}
+  .node .s{color:var(--muted);font-size:12px;margin-top:4px}
+  .arr{font-size:30px;color:var(--brand);text-align:center;animation:slide 1.6s infinite}
+  @keyframes slide{0%,100%{transform:translateX(0)}50%{transform:translateX(6px)}}
+  .losslane{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}
+  @media(max-width:820px){.losslane{grid-template-columns:1fr}}
+  .lane{border-radius:16px;padding:20px;border:1px solid var(--line)}
+  .lane.ntp{background:linear-gradient(160deg,rgba(110,168,254,.12),transparent)}
+  .lane.jepa{background:linear-gradient(160deg,rgba(155,140,255,.12),transparent)}
+  .lane h4{margin:0 0 8px;font-size:15px}
+  .lane .tag{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase}
+  /* MATH */
+  .mathcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin:16px 0}
+  .mathcard h3{margin:.1em 0 .5em;font-size:18px;color:var(--brand)}
+  .mathcard .why{color:var(--muted);font-size:15px}
+  .derive{background:var(--panel2);border-left:3px solid var(--brand2);border-radius:0 12px 12px 0;
+          padding:14px 18px;margin:14px 0;font-size:15px}
+  .hyp{font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--warn);
+       border:1px solid rgba(251,191,36,.3);border-radius:999px;padding:3px 10px;display:inline-block;margin-bottom:8px}
+  /* DEMO */
+  .demo{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tab{flex:1;padding:14px;text-align:center;cursor:pointer;color:var(--muted);font-weight:600}
+  .tab.active{color:var(--ink);background:var(--panel2);border-bottom:2px solid var(--brand)}
+  .panelbody{padding:22px}
+  .io{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.io{grid-template-columns:1fr}}
+  .io .col h4{margin:0 0 8px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:16px;
+      overflow:auto;font-size:13px;color:#cfe0ff}
+  code{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.good{background:rgba(54,211,153,.15);color:var(--good)}
+  .pill.warn{background:rgba(251,191,36,.15);color:var(--warn)}
+  .note{font-size:13px;color:var(--warn);background:rgba(251,191,36,.08);
+        border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:10px 14px;margin-top:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:600}
+  td .pill{font-size:11px}
+  footer{padding:40px 0;color:var(--muted);font-size:14px;text-align:center}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="logo">Sci-Chain-<span>JEPA</span></div>
+  <div class="navlinks">
+    <a href="#idea">Idea</a>
+    <a href="#pipeline">Pipeline</a>
+    <a href="#math">Math</a>
+    <a href="#demo">Demo</a>
+    <a href="#results">Results</a>
+    <a href="#run">Run it</a>
+  </div>
+</div></nav>
+
+<header><div class="wrap">
+  <div class="badge">Joint-Embedding Predictive Architecture · for Language Models</div>
+  <h1>Predicting <span class="grad">meaning</span>, not just words,<br/>over scientific reasoning chains</h1>
+  <p class="sub">An empirical study of JEPA objectives for language models. We add an
+  embedding-space prediction loss on top of next-token prediction and ask one honest
+  question: <b>does it make a stronger generative model?</b></p>
+  <div class="cta">
+    <a class="primary" href="#demo">See the demo ↓</a>
+    <a class="ghost" href="#run">Run it yourself</a>
+  </div>
+</div></header>
+
+<!-- IDEA -->
+<section id="idea"><div class="wrap">
+  <h2>The core idea</h2>
+  <p class="lead">A normal model predicts the exact next <i>word</i>. JEPA predicts the
+  <i>embedding</i> — the meaning vector — of what comes next. We combine both so the
+  model learns meaning without the embeddings collapsing to garbage.</p>
+  <div class="grid g3">
+    <div class="card"><div class="icon">🔤</div><h3>Next-token (NTP)</h3>
+      <p>The standard objective. Predict each next token. Keeps embeddings informative and prevents collapse.</p></div>
+    <div class="card"><div class="icon">🧭</div><h3>JEPA</h3>
+      <p>Predict the embedding of a later reasoning stage from earlier ones. Learning in meaning-space, not surface text.</p></div>
+    <div class="card"><div class="icon">⚖️</div><h3>Combined loss</h3>
+      <p>We weight the two with $\lambda$. The whole study asks how this weight changes generative quality.</p></div>
+  </div>
+  <div class="eq">
+    $$\mathcal{L} \;=\; \underbrace{\mathcal{L}_{\text{NTP}}}_{\text{predict words}} \;+\; \lambda\cdot \underbrace{\mathcal{L}_{\text{JEPA}}}_{\text{predict meaning}}$$
+  </div>
+</div></section>
+
+<!-- PIPELINE (presentation-grade) -->
+<section id="pipeline"><div class="wrap">
+  <h2>The pipeline</h2>
+  <p class="lead">Every paper is decomposed into a 6-stage reasoning chain. JEPA learns to
+  predict the <b>embedding</b> of a later stage from earlier ones — including a long-range
+  <span style="color:var(--brand2)">method → result</span> edge that probes real reasoning.</p>
+
+  <!-- 6-stage bar -->
+  <div class="stagebar">
+    <div class="seg"><div class="num">S0</div><div class="ttl">Title</div><div class="ex">"GNNs for solubility"</div><div class="dot"></div></div>
+    <div class="seg"><div class="num">S1</div><div class="ttl">Hypothesis</div><div class="ex">"message passing helps"</div><div class="dot"></div></div>
+    <div class="seg"><div class="num">S2</div><div class="ttl">Method</div><div class="ex">"3-layer GIN"</div><div class="dot"></div></div>
+    <div class="seg"><div class="num">S3</div><div class="ttl">Experiment</div><div class="ex">"ESOL, 5-fold"</div><div class="dot"></div></div>
+    <div class="seg"><div class="num">S4</div><div class="ttl">Result</div><div class="ex">"-18% RMSE"</div><div class="dot"></div></div>
+    <div class="seg"><div class="num">S5</div><div class="ttl">Conclusion</div><div class="ex">"GIN generalizes"</div></div>
+  </div>
+
+  <!-- curved JEPA edges (scalable SVG for slides) -->
+  <svg viewBox="0 0 1000 130" style="width:100%;height:auto;margin-bottom:10px" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="#9b8cff"/>
+      </marker>
+      <linearGradient id="eg" x1="0" x2="1">
+        <stop offset="0" stop-color="#6ea8fe"/><stop offset="1" stop-color="#9b8cff"/>
+      </linearGradient>
+    </defs>
+    <!-- adjacent edges S0..S5 -->
+    <path d="M85,40 q80,55 160,0"  fill="none" stroke="url(#eg)" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M250,40 q80,55 160,0" fill="none" stroke="url(#eg)" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M415,40 q80,55 160,0" fill="none" stroke="url(#eg)" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M580,40 q80,55 160,0" fill="none" stroke="url(#eg)" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M745,40 q80,55 160,0" fill="none" stroke="url(#eg)" stroke-width="2.5" marker-end="url(#ah)"/>
+    <!-- long-range method->result (S2 -> S4) -->
+    <path d="M415,36 q165,-70 330,0" fill="none" stroke="#fbbf24" stroke-width="3" stroke-dasharray="6 5" marker-end="url(#ah)"/>
+    <text x="580" y="14" fill="#fbbf24" font-size="14" font-weight="700" text-anchor="middle">long-range: method → result</text>
+  </svg>
+
+  <!-- mega data->model->loss flow -->
+  <div class="megaflow">
+    <div class="node"><div class="ico">📚</div><div class="h">Reasoning chain</div><div class="s">6 stage texts</div></div>
+    <div class="arr">→</div>
+    <div class="node hot"><div class="ico">🧠</div><div class="h">Transformer + [PRED]</div><div class="s">encodes context, emits prediction vector</div></div>
+    <div class="arr">→</div>
+    <div class="node"><div class="ico">🎯</div><div class="h">Two objectives</div><div class="s">words + meaning</div></div>
+  </div>
+
+  <!-- two losses -->
+  <div class="losslane">
+    <div class="lane ntp"><span class="tag" style="color:var(--brand)">Objective A</span>
+      <h4>Next-token (NTP)</h4>
+      <p style="color:var(--muted);margin:0;font-size:14px">Predict each next token. Anchors the model to real language and keeps embeddings informative.</p></div>
+    <div class="lane jepa"><span class="tag" style="color:var(--brand2)">Objective B</span>
+      <h4>JEPA — predict the embedding</h4>
+      <p style="color:var(--muted);margin:0;font-size:14px">For each edge $(i,j)$, predict the embedding of stage $j$ from stages $0..i$, maximizing cosine similarity.</p></div>
+  </div>
+
+  <div class="eq">
+    $$\boxed{\;\mathcal{L} \;=\; \mathcal{L}_{\text{NTP}} \;+\; \lambda\cdot \frac{1}{|E'|}\sum_{(i,j)\in E'}\bigl(1-\cos(\hat z_{ij},\,z_j)\bigr)\;}$$
+  </div>
+</div></section>
+
+<!-- MATH -->
+<section id="math"><div class="wrap">
+  <h2>How it works &amp; why it should help?</h2>
+  <p class="lead">Below: precise definitions, then the mechanistic arguments for why an
+  embedding-prediction term <i>could</i> beat next-token alone. The arguments are
+  <b>intuitions/hypotheses</b>; the λ-sweep is the actual evidence.</p>
+
+  <div class="mathcard">
+    <h3>1 · Setup &amp; notation</h3>
+    <div class="why">
+    A chain is a sequence of stages $s_0,\dots,s_5$. A shared encoder $f_\theta$ maps any stage's
+    tokens to a vector. We define:
+    $$z_j = f_\theta(s_j)\in\mathbb{R}^d \quad\text{(target embedding of stage } j)$$
+    $$\hat z_{ij} = g_\theta\bigl(f_\theta(s_{0:i})\bigr)\in\mathbb{R}^d \quad\text{(prediction of stage } j \text{ from context } 0..i)$$
+    where $g_\theta$ is the predictor (read out from the <code>[PRED]</code> tokens).
+    Edges $E=\{(0,1),(1,2),(2,3),(3,4),(4,5),(2,4)\}$ say which $j$ we predict from which $i$.
+    </div>
+  </div>
+
+  <div class="mathcard">
+    <h3>2 · The next-token term</h3>
+    <div class="why">
+    Over a token sequence $x_{1:T}$, standard cross-entropy:
+    $$\mathcal{L}_{\text{NTP}}=-\frac{1}{T}\sum_{t=1}^{T}\log p_\theta(x_t\mid x_{<t})$$
+    Generative quality is reported as <b>perplexity</b>, the exponential of this loss:
+    $$\mathrm{PPL}=\exp\!\Bigl(-\tfrac{1}{T}\textstyle\sum_t \log p_\theta(x_t\mid x_{<t})\Bigr)$$
+    Lower perplexity = better generator. This is our headline metric.
+    </div>
+  </div>
+
+  <div class="mathcard">
+    <h3>3 · The JEPA term (predict meaning, not words)</h3>
+    <div class="why">
+    For each kept edge we maximize cosine similarity between prediction and target:
+    $$\ell_{ij}=1-\cos(\hat z_{ij},z_j)=1-\frac{\hat z_{ij}^{\top}z_j}{\lVert\hat z_{ij}\rVert\,\lVert z_j\rVert}$$
+    Averaging over the surviving edges $E'\subseteq E$ (loss dropout removes some):
+    $$\mathcal{L}_{\text{JEPA}}=\frac{1}{|E'|}\sum_{(i,j)\in E'}\ell_{ij}$$
+    Each edge $i\!\to\!j$ at distance $j-i$ asks the model to anticipate a <i>later</i> stage's
+    meaning — the $(2,4)$ edge being the hardest (method ⇒ result).
+    </div>
+  </div>
+
+  <div class="mathcard">
+    <h3>4 · The combined objective &amp; its gradient</h3>
+    <div class="why">
+    $$\mathcal{L}=\mathcal{L}_{\text{NTP}}+\lambda\,\mathcal{L}_{\text{JEPA}},
+      \qquad \nabla_\theta\mathcal{L}=\nabla_\theta\mathcal{L}_{\text{NTP}}+\lambda\,\nabla_\theta\mathcal{L}_{\text{JEPA}}$$
+    The JEPA gradient injects an extra learning signal at every step. Whether this <i>helps</i>
+    depends on $\lambda$ — too small and it's negligible; too large and it overwhelms the
+    language signal. Hence the U-shaped sweep.
+    </div>
+  </div>
+
+  <h2 style="margin-top:40px">Why it <i>should</i> help — four mechanisms</h2>
+
+  <div class="grid g2">
+    <div class="mathcard">
+      <span class="hyp">Hypothesis · not proof</span>
+      <h3>① A denser learning signal</h3>
+      <div class="why">NTP gives one signal per token. JEPA adds a signal per <i>edge</i>, in a
+      low-dimensional meaning space. Heuristically the effective signal per step grows:
+      $$\text{signal} \;\propto\; \underbrace{T}_{\text{tokens}} \;+\; \lambda\,\underbrace{|E'|}_{\text{edges}}$$
+      More informative gradient per example ⇒ faster, more data-efficient learning.</div>
+    </div>
+
+    <div class="mathcard">
+      <span class="hyp">Hypothesis · not proof</span>
+      <h3>② Smoother targets (denoising)</h3>
+      <div class="why">Predicting exact tokens forces the model to model surface noise
+      (synonyms, phrasing). Predicting an embedding targets an <i>averaged</i> meaning:
+      $$z_j=f_\theta(s_j)\ \text{discards token-level entropy}.$$
+      Lower-entropy targets ⇒ lower-variance gradients ⇒ more stable optimization. This is the
+      classic argument for predictive representation learning (cf. masked/contrastive methods).</div>
+    </div>
+
+    <div class="mathcard">
+      <span class="hyp">Hypothesis · not proof</span>
+      <h3>③ Long-range structure</h3>
+      <div class="why">The $(2,4)$ edge forces $\hat z_{24}\!\approx\! z_4$: the model must encode
+      enough of the <i>method</i> to anticipate the <i>result</i>. This pressures the
+      representation to capture causal/scientific structure that token-local NTP need not learn,
+      which can <i>transfer</i> back into better next-token prediction.</div>
+    </div>
+
+    <div class="mathcard">
+      <span class="hyp">Why collapse won't happen</span>
+      <h3>④ NTP prevents collapse</h3>
+      <div class="why">JEPA alone has a trivial minimizer: a constant encoder $f_\theta(\cdot)=c$
+      gives $\cos=1,\ \mathcal{L}_{\text{JEPA}}=0$ — useless embeddings. But that same $c$ makes
+      $\mathcal{L}_{\text{NTP}}$ maximal (the model can't predict words). The joint loss has no
+      constant minimizer:
+      $$\arg\min_\theta\bigl(\mathcal{L}_{\text{NTP}}+\lambda\mathcal{L}_{\text{JEPA}}\bigr)\neq\{\text{constant }f_\theta\}.$$
+      So NTP is the anti-collapse anchor that lets JEPA add value safely.</div>
+    </div>
+  </div>
+
+  <div class="derive">
+    <b>The falsifiable prediction.</b> If these mechanisms are real, there exists
+    $\lambda^\star>0$ with $\mathrm{PPL}(\lambda^\star)<\mathrm{PPL}(0)$, and the improvement is
+    statistically significant across seeds (paired $t$-test, Holm–Bonferroni). If <i>no</i>
+    $\lambda>0$ beats $\lambda=0$, the hypothesis is rejected — and that is still a valid,
+    reportable result. The math motivates; the sweep decides.
+  </div>
+</div></section>
+
+<!-- DEMO -->
+<section id="demo"><div class="wrap">
+  <h2>Live-style demo</h2>
+  <p class="lead">Three worked examples showing what goes in and what comes out. Click a tab.</p>
+
+  <div class="demo">
+    <div class="tabs">
+      <div class="tab active" onclick="showTab(0)">📉 Generation (Perplexity)</div>
+      <div class="tab" onclick="showTab(1)">🎯 F1 · Forward Retrieval</div>
+      <div class="tab" onclick="showTab(2)">💡 F2 · Surprise</div>
+    </div>
+
+    <!-- DEMO 1 -->
+    <div class="panelbody demo-pane">
+      <div class="io">
+        <div class="col"><h4>Input — context stages</h4>
+<pre><code>[title]      Graph neural networks for
+             molecular property prediction
+[hypothesis] Message passing improves
+             solubility estimates
+[method]     3-layer GIN with edge features
+[experiment] ESOL benchmark, 5-fold CV</code></pre></div>
+        <div class="col"><h4>Output — model generates the result</h4>
+<pre><code>[result] (generated)
+"The GIN model reduced RMSE by 18%
+ over the MPNN baseline, with the
+ largest gains on aromatic compounds."
+
+Perplexity (NTP+JEPA): 14.2   &lt;- lower
+Perplexity (NTP only): 16.9
+Improvement:           <span style="color:#36d399">-16% v</span></code></pre></div>
+      </div>
+      <div class="note">⚠️ Illustrative numbers. Replace with your real
+        <code>study_lambda.json</code> values once experiments finish (see TODO in the script).</div>
+    </div>
+
+    <!-- DEMO 2 -->
+    <div class="panelbody demo-pane" style="display:none">
+      <div class="io">
+        <div class="col"><h4>Input — 4 stages + a lineup</h4>
+<pre><code>Context: title-&gt;hypothesis-&gt;method-&gt;experiment
+
+Candidates (which is the REAL result?):
+ A. "accuracy increased by 12%"     (true)
+ B. "accuracy decreased by 12%"     (adversarial flip)
+ C. "no significant change observed"
+ D. "training time tripled"</code></pre></div>
+        <div class="col"><h4>Output — ranking by embedding match</h4>
+<pre><code>Model ranking (cosine to prediction):
+ 1. A  0.91   correct
+ 2. C  0.44
+ 3. D  0.31
+ 4. B  0.12   &lt;- rejected the flip
+
+Recall@1: <span style="color:#36d399">0.71</span>   (BM25 word-baseline: 0.50)</code></pre></div>
+      </div>
+      <div class="note">⚠️ Illustrative. The key signal: the model rejects the
+        <b>flipped finding (B)</b> that a word-matcher would be fooled by.</div>
+    </div>
+
+    <!-- DEMO 3 -->
+    <div class="panelbody demo-pane" style="display:none">
+      <div class="io">
+        <div class="col"><h4>Input — paper + its real result</h4>
+<pre><code>Context: title-&gt;hypothesis-&gt;method-&gt;experiment
+Real result: "Counter-intuitively, smaller
+ batch sizes improved generalization."
+
+Citations of this paper: 412</code></pre></div>
+        <div class="col"><h4>Output — surprise vs. impact</h4>
+<pre><code>Surprise (1 - cosine):  0.78  (high)
+This high-surprise result is also
+ high-citation.
+
+Across the test set:
+ Spearman rho(surprise, citations) = <span style="color:#36d399">0.34</span>
+ AUROC (top-quartile cited):        0.67</code></pre></div>
+      </div>
+      <div class="note">⚠️ Illustrative. Tests whether "surprising but valid"
+        results tend to be more cited.</div>
+    </div>
+  </div>
+</div></section>
+
+<!-- RESULTS -->
+<section id="results"><div class="wrap">
+  <h2>The λ-sweep (main result)</h2>
+  <p class="lead">We vary the JEPA weight $\lambda$. $\lambda=0$ is the pure
+  next-token baseline. We expect a U-shape: a sweet spot beats the baseline.</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>λ (JEPA weight)</th><th>Perplexity ↓</th><th>F1 Recall@1 ↑</th><th>F2 ρ ↑</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>0.0 (baseline)</td><td>16.9</td><td>0.58</td><td>0.21</td><td><span class="pill warn">control</span></td></tr>
+        <tr><td>0.25</td><td>15.7</td><td>0.64</td><td>0.27</td><td></td></tr>
+        <tr><td>0.5</td><td>14.6</td><td>0.69</td><td>0.31</td><td></td></tr>
+        <tr><td><b>1.0</b></td><td><b>14.2</b></td><td><b>0.71</b></td><td><b>0.34</b></td><td><span class="pill good">best λ*</span></td></tr>
+        <tr><td>2.0</td><td>15.1</td><td>0.67</td><td>0.30</td><td></td></tr>
+      </tbody>
+    </table>
+    <div class="note">⚠️ All values illustrative placeholders. Paste your real numbers
+      from <code>outputs/study_lambda.json</code> here before sharing.</div>
+  </div>
+</div></section>
+
+<!-- RUN -->
+<section id="run"><div class="wrap">
+  <h2>Run it yourself</h2>
+  <p class="lead">You only ever run <code>experiments.py</code>. Always smoke-test first.</p>
+  <div class="grid g2">
+    <div class="card"><h3>1 · Setup &amp; smoke test</h3>
+<pre><code>pip install -r requirements.txt
+
+# ~2 min - catches errors before you scale
+python experiments.py --study all --smoke</code></pre></div>
+    <div class="card"><h3>2 · Real Phase-1 studies</h3>
+<pre><code># fine-tuning (from_scratch = False)
+python experiments.py --study lambda   --tier P1 --seeds 3
+python experiments.py --study ablation --tier P1 --seeds 3
+python experiments.py --study dropout  --tier P1 --seeds 3</code></pre></div>
+  </div>
+  <p class="lead" style="margin-top:20px">Results land in <code>outputs/study_*.json</code> and <code>study_*.png</code>.
+  Full guide in the repo <a href="./README.md">README</a>.</p>
+</div></section>
+
+<footer><div class="wrap">
+  Sci-Chain-JEPA · built for students &amp; collaborators ·
+  <a href="https://github.com/USERNAME/REPONAME">GitHub</a> ·
+  <span class="pill warn">demo numbers are illustrative placeholders</span>
+</div></footer>
+
+<script>
+  function showTab(i){
+    document.querySelectorAll('.tab').forEach((t,k)=>t.classList.toggle('active',k===i));
+    document.querySelectorAll('.demo-pane').forEach((p,k)=>p.style.display=(k===i?'block':'none'));
+  }
+  /* TODO -- PASTE YOUR REAL NUMBERS:
+     1. Open outputs/study_lambda.json after your runs.
+     2. Update the Results table above and the Perplexity demo values.
+     3. Replace USERNAME/REPONAME in the footer GitHub link.            */
+</script>
+</body>
+</html>
