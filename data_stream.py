@@ -1,7 +1,13 @@
-"""data_stream.py -- streaming shard builder + IterableDataset (constant RAM)."""
+"""data_stream.py -- streaming shard builder + IterableDataset (constant RAM).
+
+Shard cache is keyed by a hash of data-relevant config, so changing
+max_train_examples / test_year / columns rebuilds shards instead of silently
+reusing stale ones.
+"""
 import os
 import json
 import random
+import hashlib
 from collections import defaultdict
 from typing import Dict, Iterator, List
 
@@ -14,6 +20,26 @@ from torch.utils.data import IterableDataset
 
 from config import CFG
 from utils import parse_year
+
+
+def _data_signature() -> str:
+    """Hash of the config fields that affect shard CONTENTS."""
+    key = json.dumps({
+        "dataset": CFG.hf_dataset,
+        "stage_columns": CFG.stage_columns,
+        "year_column": CFG.year_column,
+        "citation_column": CFG.citation_column,
+        "field_column": CFG.field_column,
+        "id_column": CFG.id_column,
+        "train_cutoff_year": CFG.train_cutoff_year,
+        "test_year": CFG.test_year,
+        "random_split_test_frac": CFG.random_split_test_frac,
+        "max_train_examples": CFG.max_train_examples,
+        "max_test_examples": CFG.max_test_examples,
+        "max_papers_per_field": CFG.max_papers_per_field,
+        "max_stage_chars": CFG.max_stage_chars,
+    }, sort_keys=True)
+    return hashlib.md5(key.encode()).hexdigest()[:10]
 
 
 def _row_to_chain(row) -> Dict:
@@ -34,9 +60,24 @@ def _row_to_chain(row) -> Dict:
 def build_shards():
     os.makedirs(CFG.shard_dir, exist_ok=True)
     done = os.path.join(CFG.shard_dir, "_DONE")
+    sig = _data_signature()
+    # rebuild if no _DONE, or signature changed
     if os.path.exists(done):
-        print(f"[data] Shards already built in {CFG.shard_dir}")
-        return
+        try:
+            with open(done) as f:
+                meta = json.load(f)
+            if meta.get("signature") == sig:
+                print(f"[data] Shards already built in {CFG.shard_dir} (sig={sig})")
+                return
+            print(f"[data] Config changed (sig {meta.get('signature')} -> {sig}); "
+                  f"rebuilding shards.")
+        except Exception:
+            pass
+        # clear stale shards
+        for f in os.listdir(CFG.shard_dir):
+            if f.endswith(".parquet") or f == "_DONE":
+                os.remove(os.path.join(CFG.shard_dir, f))
+
     print(f"[data] Streaming {CFG.hf_dataset} ...")
     ds = load_dataset(CFG.hf_dataset, split="train", streaming=CFG.streaming)
 
@@ -82,8 +123,8 @@ def build_shards():
             flush(split)
     flush("train"); flush("test")
     with open(done, "w") as f:
-        json.dump(counts, f)
-    print(f"[data] Wrote shards: {counts}")
+        json.dump({"counts": counts, "signature": sig}, f)
+    print(f"[data] Wrote shards: {counts} (sig={sig})")
 
 
 class ChainShardDataset(IterableDataset):
