@@ -2,13 +2,14 @@
 experiments.py
 ==============
 Runs the three studies and saves JSON + plots. Each study trains models by
-overriding CFG fields, then evaluates perplexity (headline) + F1/F2.
+overriding CFG fields, then evaluates perplexity (headline) + F1/F2
++ embedding-health (collapse) diagnostic.
 
 Usage:
-  python experiments.py --study lambda    [--smoke]
-  python experiments.py --study ablation  [--smoke]
-  python experiments.py --study dropout   [--smoke]
-  python experiments.py --study all       [--smoke]
+  python experiments.py --study lambda   --tier FT --seeds 3
+  python experiments.py --study ablation --tier FT --seeds 3
+  python experiments.py --study dropout  --tier FT --seeds 3
+  python experiments.py --study all      --smoke
 """
 import os
 import json
@@ -18,6 +19,7 @@ import numpy as np
 from config import CFG, set_tier
 from train import train
 from evaluate import run_all
+from stats import paired_ttest, holm_bonferroni
 
 
 def _run_one(seed=0):
@@ -28,7 +30,10 @@ def _run_one(seed=0):
     return {**train_stats,
             "perplexity": metrics["perplexity"]["perplexity"],
             "F1_recall1": metrics["F1_model"]["Recall@1"],
-            "F2_rho": metrics["F2"]["spearman_rho"]}
+            "F1_bm25_recall1": metrics["F1_bm25"]["Recall@1"],
+            "F2_rho": metrics["F2"]["spearman_rho"],
+            "mean_pairwise_cos": metrics["embedding_health"]["mean_pairwise_cos"],
+            "effective_rank": metrics["embedding_health"]["effective_rank"]}
 
 
 def _save(name, results):
@@ -54,27 +59,44 @@ def _plot(name, xs, ys, xlabel, ylabel):
 
 
 # ---------------------------------------------------------------------------
-# STUDY 1: lambda sweep
+# STUDY 1: lambda sweep (with significance testing vs lambda=0 baseline)
 # ---------------------------------------------------------------------------
 def study_lambda(seeds):
-    """
-    Vary lambda_jepa over a grid. lambda=0 IS the pure-NTP baseline.
-    We expect a U-shape: too small = no benefit, too large = NTP gets crowded out.
-    """
     lambdas = [0.0, 0.25, 0.5, 1.0, 2.0]
     results = {}
+    perp_by_lambda = {}                       # lambda -> list of per-seed ppl
     for lam in lambdas:
         CFG.lambda_jepa = lam
-        CFG.jepa_enabled = (lam > 0)   # lambda=0 means no JEPA at all
-        perps = []
+        CFG.jepa_enabled = (lam > 0)          # lambda=0 means no JEPA at all
+        perps, cos, rank = [], [], []
         for s in seeds:
-            # fresh shards reused; only weights change
             r = _run_one(seed=s)
             perps.append(r["perplexity"])
-        results[str(lam)] = {"perplexity_mean": float(np.mean(perps)),
-                             "perplexity_std": float(np.std(perps)),
-                             "perplexities": perps}
-        print(f"[lambda] lambda={lam}: ppl={np.mean(perps):.3f}")
+            cos.append(r["mean_pairwise_cos"])
+            rank.append(r["effective_rank"])
+        perp_by_lambda[lam] = perps
+        results[str(lam)] = {
+            "perplexity_mean": float(np.mean(perps)),
+            "perplexity_std": float(np.std(perps)),
+            "perplexities": perps,
+            "mean_pairwise_cos": float(np.mean(cos)),
+            "effective_rank": float(np.mean(rank))}
+        print(f"[lambda] lambda={lam}: ppl={np.mean(perps):.3f} "
+              f"cos={np.mean(cos):.3f} eff_rank={np.mean(rank):.1f}")
+
+    # ---- significance: each lambda>0 vs lambda=0 baseline (Holm-corrected) ----
+    baseline = perp_by_lambda[0.0]
+    nonzero = [l for l in lambdas if l > 0]
+    pvals = [paired_ttest(perp_by_lambda[l], baseline) for l in nonzero]
+    sig = holm_bonferroni([p if p == p else 1.0 for p in pvals])  # NaN->1.0
+    results["_significance"] = {
+        "baseline_lambda": 0.0,
+        "tests": {str(l): {"p_value": pvals[i], "significant_holm": bool(sig[i]),
+                           "better_than_baseline":
+                               np.mean(perp_by_lambda[l]) < np.mean(baseline)}
+                  for i, l in enumerate(nonzero)}}
+    print(f"[lambda] significance vs baseline: {results['_significance']['tests']}")
+
     _save("lambda", results)
     _plot("lambda_perplexity", lambdas,
           [results[str(l)]["perplexity_mean"] for l in lambdas],
@@ -86,10 +108,6 @@ def study_lambda(seeds):
 # STUDY 2: ablation on design choices
 # ---------------------------------------------------------------------------
 def study_ablation(seeds):
-    """
-    Turn each design choice OFF (one at a time) vs the FULL model.
-    Shows which pieces actually matter.
-    """
     base_cfg = dict(use_pred_tokens=True, use_long_range_edge=True,
                     use_trivial_edge_filter=True, jepa_loss_type="cosine",
                     jepa_enabled=True, lambda_jepa=1.0)
@@ -105,10 +123,14 @@ def study_ablation(seeds):
     for name, override in variants.items():
         for k, v in {**base_cfg, **override}.items():
             setattr(CFG, k, v)
-        perps = [ _run_one(seed=s)["perplexity"] for s in seeds ]
+        perps, cos = [], []
+        for s in seeds:
+            r = _run_one(seed=s)
+            perps.append(r["perplexity"]); cos.append(r["mean_pairwise_cos"])
         results[name] = {"perplexity_mean": float(np.mean(perps)),
-                         "perplexity_std": float(np.std(perps))}
-        print(f"[ablation] {name}: ppl={np.mean(perps):.3f}")
+                         "perplexity_std": float(np.std(perps)),
+                         "mean_pairwise_cos": float(np.mean(cos))}
+        print(f"[ablation] {name}: ppl={np.mean(perps):.3f} cos={np.mean(cos):.3f}")
     _save("ablation", results)
     return results
 
@@ -117,11 +139,6 @@ def study_ablation(seeds):
 # STUDY 3: faster LLM-JEPAs via loss dropout
 # ---------------------------------------------------------------------------
 def study_dropout(seeds):
-    """
-    Vary loss_dropout. Higher dropout = fewer edge forward-passes = FASTER,
-    but possibly higher perplexity. We report BOTH perplexity and speed
-    (steps/sec, edges_run) to show the speed/quality tradeoff.
-    """
     dropouts = [0.0, 0.125, 0.25, 0.5, 0.75]
     CFG.jepa_enabled = True; CFG.lambda_jepa = 1.0
     results = {}
@@ -154,11 +171,15 @@ if __name__ == "__main__":
                     default="all")
     ap.add_argument("--smoke", action="store_true",
                     help="tiny fast run to catch errors before scaling")
+    ap.add_argument("--tier", choices=["smoke", "FT", "P1", "P2"], default=None,
+                    help="scale tier (FT=Phase-1 fine-tuning, P1/P2=Phase-2 scratch)")
     ap.add_argument("--seeds", type=int, default=1)
     args = ap.parse_args()
 
     if args.smoke:
         set_tier("smoke")
+    elif args.tier:
+        set_tier(args.tier)
     seeds = list(range(args.seeds))
 
     if args.study in ("lambda", "all"):
