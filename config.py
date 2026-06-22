@@ -3,12 +3,19 @@ config.py
 =========
 Central configuration. Edit ONLY this file (or override via experiment scripts).
 
-This project empirically validates: "Pretraining stronger generative models via
-JEPA." Studies included:
-  - Main: JEPA on/off during PRETRAINING (from random weights).
-  - Ablation: design-choice on/off.
-  - lambda sweep: how the JEPA weight affects quality.
-  - Loss-dropout: speed vs quality tradeoff ("Faster LLM-JEPAs via loss dropout").
+This project empirically tests: "Does a JEPA objective produce a STRONGER
+generative model than next-token prediction alone?"
+
+PLAN (see project docs):
+  PHASE 1 (DEFAULT, start here): from_scratch=False  -> fine-tune a pretrained
+           model while adding JEPA. Cheap, low-risk. Use tier "FT".
+  PHASE 2 (only if Phase 1 earns it): from_scratch=True -> random init,
+           true pretraining. Expensive/risky. Use tiers "P1"/"P2".
+
+Studies:
+  - lambda sweep : how the JEPA weight affects quality (lambda=0 is the baseline).
+  - ablation     : design-choice on/off.
+  - loss-dropout : speed vs quality tradeoff ("Faster LLM-JEPAs via loss dropout").
 """
 
 from dataclasses import dataclass, field
@@ -25,10 +32,11 @@ class Config:
 
     # ----------------------------------------------------------------------
     # PRETRAINING vs FINE-TUNING
-    #   from_scratch=True  -> random init, model learns from zero (PRETRAINING).
-    #   from_scratch=False -> load pretrained weights (fine-tuning study).
+    #   from_scratch=False -> load pretrained weights (FINE-TUNING). <-- DEFAULT
+    #   from_scratch=True  -> random init, learn from zero (PRETRAINING).
+    # We start with fine-tuning (Phase 1). Only flip to True at the decision gate.
     # ----------------------------------------------------------------------
-    from_scratch: bool = True
+    from_scratch: bool = False
 
     # ----------------------------------------------------------------------
     # THE CRITICAL SWITCH (JEPA on/off) + the headline metric
@@ -84,9 +92,15 @@ class Config:
     jepa_loss_type: str = "cosine"         # "cosine" | "mse"
 
     # ----------------------------------------------------------------------
+    # ANTI-COLLAPSE
+    #   detach_target=True  -> stop-gradient on the JEPA target side (recommended).
+    #   This prevents the trivial "make all embeddings equal" collapse.
+    # ----------------------------------------------------------------------
+    detach_target: bool = True
+    collapse_eval_examples: int = 200      # for embedding-health diagnostic
+
+    # ----------------------------------------------------------------------
     # LOSS DROPOUT ("Faster LLM-JEPAs via loss dropout")
-    #   Fraction of JEPA edges randomly skipped each step. Higher = faster but
-    #   potentially weaker. The dropout study sweeps this value.
     # ----------------------------------------------------------------------
     loss_dropout: float = 0.125
 
@@ -94,7 +108,7 @@ class Config:
     # TRAINING
     # ----------------------------------------------------------------------
     streaming: bool = True
-    max_train_examples: int = 5_000        # SMALL default; raise for real runs
+    max_train_examples: int = 5_000        # SMALL default; raise via tiers
     max_test_examples: int = 1_000
     shard_dir: str = "./data_shards"
     num_workers: int = 2
@@ -122,7 +136,7 @@ class Config:
     save_every_steps: int = 1000
     log_every_steps: int = 20
     resume_from: str = ""
-    max_train_steps: int = 500             # SMALL default; raise for real runs
+    max_train_steps: int = 500             # SMALL default; raise via tiers
 
     # ----------------------------------------------------------------------
     # SYSTEM
@@ -136,23 +150,34 @@ CFG = Config()
 
 
 # ----------------------------------------------------------------------------
-# SCALE TIERS -- call set_tier("P1") etc. from a script to scale up.
+# SCALE TIERS -- call set_tier("FT") etc. from a script to scale up.
 # ----------------------------------------------------------------------------
 def set_tier(name: str):
-    if name == "smoke":   # ~2 min, catches errors
+    if name == "smoke":   # ~2 min, catches errors (works for FT or scratch)
         CFG.max_train_examples = 2000; CFG.max_test_examples = 200
         CFG.max_train_steps = 30; CFG.batch_size = 2; CFG.warmup_steps = 5
-        CFG.perplexity_eval_examples = 50
-    elif name == "P1":    # pretraining proof-of-concept, 1-2 GPUs
+        CFG.perplexity_eval_examples = 50; CFG.collapse_eval_examples = 50
+    elif name == "FT":    # PHASE 1 fine-tuning proof-of-concept, 1 GPU
+        CFG.from_scratch = False
+        CFG.max_train_examples = 50_000; CFG.max_test_examples = 3000
+        CFG.max_train_steps = 5_000; CFG.batch_size = 8
+        CFG.grad_accum_steps = 4; CFG.warmup_steps = 200
+        CFG.num_epochs = 1; CFG.lr = 2e-5            # FT LR (much lower than scratch)
+        CFG.perplexity_eval_examples = 1000
+    elif name == "P1":    # PHASE 2 pretraining proof-of-concept, 1-2 GPUs
+        CFG.from_scratch = True
         CFG.max_train_examples = 200_000; CFG.max_test_examples = 3000
         CFG.max_train_steps = 50_000; CFG.batch_size = 16
         CFG.grad_accum_steps = 16; CFG.warmup_steps = 2000
-        CFG.num_epochs = 3; CFG.perplexity_eval_examples = 1000
-    elif name == "P2":    # credible pretraining, multi-GPU multi-day
+        CFG.num_epochs = 3; CFG.lr = 6e-4
+        CFG.perplexity_eval_examples = 1000
+    elif name == "P2":    # PHASE 2 credible pretraining, multi-GPU multi-day
+        CFG.from_scratch = True
         CFG.max_train_examples = 1_000_000; CFG.max_test_examples = 3000
         CFG.max_train_steps = 200_000; CFG.batch_size = 16
         CFG.grad_accum_steps = 32; CFG.warmup_steps = 4000
-        CFG.num_epochs = 5; CFG.perplexity_eval_examples = 1000
+        CFG.num_epochs = 5; CFG.lr = 6e-4
+        CFG.perplexity_eval_examples = 1000
     else:
         raise ValueError(f"unknown tier {name}")
-    print(f"[config] tier set to {name}")
+    print(f"[config] tier set to {name} (from_scratch={CFG.from_scratch}, lr={CFG.lr})")
